@@ -136,17 +136,17 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
             'covariate_type': 'past_only'
         },
         'N-BEATS': {
-            'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
+            'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, batch_size=16,
                                  n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'past_only'
         },
         'N-HiTS': {
-            'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
+            'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, batch_size=16,
                                 n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'past_only'
         },
         'TFT': {
-            'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
+            'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, batch_size=16,
                               add_relative_index=True, n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'both'  # TFT supports both past and future covariates
         }
@@ -239,8 +239,10 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         results[name] = {'MAE': m_mae, 'MAPE': m_mape, 'RMSE': m_rmse}
         predictions_dict[name] = pred_unscaled
         
-        print(f"✅ {name} Completed. MAE: {m_mae:,.2f} MWh")
+        epochs_run = model.epochs_trained
         
+        print(f"✅ {name} Completed in {epochs_run} epochs. MAE: {m_mae:,.2f} MWh")
+
         del model
         gc.collect()
         if torch.cuda.is_available():
