@@ -98,14 +98,15 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     fleet_configs = {}
 
     # Define the Early Stopping rule (wait 3 epochs for improvement before quitting)
-    early_stopper = EarlyStopping(
-        monitor="val_loss",
-        patience=3,
-        min_delta=0.001,
-        mode='min',
-    )
+    def get_trainer_kwargs():
+        return {
+            "callbacks": [
+                EarlyStopping(monitor="val_loss", patience=3, min_delta=0.001, mode='min')
+            ],
+            "enable_checkpointing": True,
+            "logger": True # Optional: Keeps the terminal output clean
+        }
     
-    trainer_kwargs = {"callbacks": [early_stopper]}
     max_epochs = max_epochs # Set a high ceiling, the early stopper will cut it off naturally!
     
     # Unpack scaled data
@@ -122,33 +123,39 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     models_dict = {
         'LSTM': {
             'model': RNNModel(model='LSTM', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
-                              n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
-            'covariate_type': 'future_only'  # RNNModel does NOT accept past_covariates
+                              n_epochs=max_epochs, batch_size=32, random_state=42, 
+                              pl_trainer_kwargs=get_trainer_kwargs()), # <--- Fresh copy here
+            'covariate_type': 'future_only'
         },
         'GRU': {
             'model': RNNModel(model='GRU', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
-                              n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
-            'covariate_type': 'future_only'  # RNNModel does NOT accept past_covariates
+                              n_epochs=max_epochs, batch_size=32, random_state=42, 
+                              pl_trainer_kwargs=get_trainer_kwargs()), # <--- Fresh copy here
+            'covariate_type': 'future_only'
         },
         'TCN': {
             'model': TCNModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                              n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
+                              n_epochs=max_epochs, batch_size=32, random_state=42, 
+                              pl_trainer_kwargs=get_trainer_kwargs()),
             'covariate_type': 'past_only'
         },
         'N-BEATS': {
-            'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, batch_size=16,
-                                 n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
+            'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
+                                 n_epochs=max_epochs, batch_size=16, random_state=42, 
+                                 pl_trainer_kwargs=get_trainer_kwargs()),
             'covariate_type': 'past_only'
         },
         'N-HiTS': {
-            'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, batch_size=16,
-                                n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
+            'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
+                                n_epochs=max_epochs, batch_size=16, random_state=42, 
+                                pl_trainer_kwargs=get_trainer_kwargs()),
             'covariate_type': 'past_only'
         },
         'TFT': {
-            'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, batch_size=16,
-                              add_relative_index=True, n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
-            'covariate_type': 'both'  # TFT supports both past and future covariates
+            'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
+                              add_relative_index=True, n_epochs=max_epochs, batch_size=16, random_state=42, 
+                              pl_trainer_kwargs=get_trainer_kwargs()),
+            'covariate_type': 'both'
         }
     }
     
@@ -165,17 +172,20 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         # Create a validation split (e.g., last 15% of training data) for the early stopper to monitor
         train_split, val_split = train_tgt.split_before(0.85)
 
-        # FIT — pass the val_series so Early Stopping has something to monitor
+        train_past_split, val_past_split = train_past.split_before(0.85)
+        train_future_split, val_future_split = train_future.split_before(0.85)
+
+        # FIT — use the split covariates, not the full training ones
         if cov_type == 'future_only':
-            model.fit(series=train_split, val_series=val_split, 
-                      future_covariates=train_future, val_future_covariates=train_future, verbose=False)
+            model.fit(series=train_split, val_series=val_split,
+                    future_covariates=train_future_split, val_future_covariates=val_future_split, verbose=True)
         elif cov_type == 'past_only':
-            model.fit(series=train_split, val_series=val_split, 
-                      past_covariates=train_past, val_past_covariates=train_past, verbose=False)
+            model.fit(series=train_split, val_series=val_split,
+                    past_covariates=train_past_split, val_past_covariates=val_past_split, verbose=True)
         else:  # 'both' → TFT
-            model.fit(series=train_split, val_series=val_split, 
-                      past_covariates=train_past, val_past_covariates=train_past,
-                      future_covariates=train_future, val_future_covariates=train_future, verbose=False)
+            model.fit(series=train_split, val_series=val_split,
+                    past_covariates=train_past_split, val_past_covariates=val_past_split,
+                    future_covariates=train_future_split, val_future_covariates=val_future_split, verbose=True)
 
         # --- SAVE THE MODEL ---
         model_path = os.path.join(save_dir, f"{name}_model.pt")
