@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from darts import TimeSeries
 from darts.dataprocessing.transformers import Scaler
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from darts.models import RNNModel, TCNModel, NBEATSModel, NHiTSModel, TFTModel
 from darts.metrics import mae, mape, rmse
 import warnings
@@ -80,10 +81,21 @@ def prepare_darts_from_split(X_train, y_train, X_test, y_test):
 # ==========================================
 # 2. TRAIN & EVALUATE DEEP LEARNING FLEET
 # ==========================================
-def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horizon=24, epochs=5):
+def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horizon=24):
     print("="*50)
     print("🚀 LAUNCHING DEEP LEARNING FLEET (6 MODELS)")
     print("="*50)
+
+    # Define the Early Stopping rule (wait 3 epochs for improvement before quitting)
+    early_stopper = EarlyStopping(
+        monitor="val_loss",
+        patience=3,
+        min_delta=0.001,
+        mode='min',
+    )
+    
+    trainer_kwargs = {"callbacks": [early_stopper]}
+    max_epochs = 60 # Set a high ceiling, the early stopper will cut it off naturally!
     
     # Unpack scaled data
     train_tgt = darts_data['train_target_scaled']
@@ -99,32 +111,32 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     models_dict = {
         'LSTM': {
             'model': RNNModel(model='LSTM', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
-                              n_epochs=epochs, random_state=42),
+                              n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'future_only'  # RNNModel does NOT accept past_covariates
         },
         'GRU': {
             'model': RNNModel(model='GRU', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
-                              n_epochs=epochs, random_state=42),
+                              n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'future_only'  # RNNModel does NOT accept past_covariates
         },
         'TCN': {
             'model': TCNModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                              n_epochs=epochs, random_state=42),
+                              n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'past_only'
         },
         'N-BEATS': {
             'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                                 n_epochs=epochs, random_state=42),
+                                 n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'past_only'
         },
         'N-HiTS': {
             'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                                n_epochs=epochs, random_state=42),
+                                n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'past_only'
         },
         'TFT': {
             'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                              add_relative_index=True, n_epochs=epochs, random_state=42),
+                              add_relative_index=True, n_epochs=max_epochs, pl_trainer_kwargs=trainer_kwargs, random_state=42),
             'covariate_type': 'both'  # TFT supports both past and future covariates
         }
     }
@@ -139,13 +151,20 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         model = config['model']
         cov_type = config['covariate_type']
 
-        # FIT — route covariates based on what each model architecture supports
+        # Create a validation split (e.g., last 15% of training data) for the early stopper to monitor
+        train_split, val_split = train_tgt.split_before(0.85)
+
+        # FIT — pass the val_series so Early Stopping has something to monitor
         if cov_type == 'future_only':
-            model.fit(series=train_tgt, future_covariates=train_future, verbose=False)
+            model.fit(series=train_split, val_series=val_split, 
+                      future_covariates=train_future, val_future_covariates=train_future, verbose=False)
         elif cov_type == 'past_only':
-            model.fit(series=train_tgt, past_covariates=train_past, verbose=False)
+            model.fit(series=train_split, val_series=val_split, 
+                      past_covariates=train_past, val_past_covariates=train_past, verbose=False)
         else:  # 'both' → TFT
-            model.fit(series=train_tgt, past_covariates=train_past, future_covariates=train_future, verbose=False)
+            model.fit(series=train_split, val_series=val_split, 
+                      past_covariates=train_past, val_past_covariates=train_past,
+                      future_covariates=train_future, val_future_covariates=train_future, verbose=False)
            
         print(f"Predicting 2018 with {name} (Historical Forecasts simulating Day-Ahead)...")
         
@@ -167,7 +186,6 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
             **kwargs
         )
         
-        # Inverse Transform and Calculate Metrics
         # Inverse Transform and Calculate Metrics
         pred_unscaled = scaler.inverse_transform(pred_scaled)
         
