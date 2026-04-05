@@ -1,5 +1,7 @@
 import os
 import json
+import gc
+import torch
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -211,7 +213,19 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         )
         
         # Inverse Transform and Calculate Metrics
-        pred_unscaled = scaler.inverse_transform(pred_scaled)
+        # --- Stitch the chunks together if it's a list ---
+        if isinstance(pred_scaled, list):
+            # Convert list of Darts TimeSeries to Pandas DataFrames and concatenate
+            pred_scaled_df = pd.concat([ts.to_dataframe() for ts in pred_scaled])
+            
+            # Convert back to a single Darts TimeSeries
+            pred_scaled_combined = TimeSeries.from_dataframe(pred_scaled_df)
+        else:
+            pred_scaled_combined = pred_scaled
+        
+        # Inverse Transform and Calculate Metrics
+        # Pass the combined single series instead of the list!
+        pred_unscaled = scaler.inverse_transform(pred_scaled_combined)
         
         # 1. Use slice_intersect for BOTH to ensure identical lengths
         aligned_actuals = actuals.slice_intersect(pred_unscaled)
@@ -226,6 +240,11 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         predictions_dict[name] = pred_unscaled
         
         print(f"✅ {name} Completed. MAE: {m_mae:,.2f} MWh")
+        
+        del model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # LEADERBOARD
     print("\n🏆 DEEP LEARNING LEADERBOARD (TEST SET 2018) 🏆")
