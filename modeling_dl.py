@@ -1,3 +1,5 @@
+import os
+import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -86,6 +88,13 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     print("🚀 LAUNCHING DEEP LEARNING FLEET (6 MODELS)")
     print("="*50)
 
+    # Create a directory to store models and configs
+    save_dir = "saved_models"
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Dictionary to keep track of configurations to save later
+    fleet_configs = {}
+
     # Define the Early Stopping rule (wait 3 epochs for improvement before quitting)
     early_stopper = EarlyStopping(
         monitor="val_loss",
@@ -165,6 +174,20 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
             model.fit(series=train_split, val_series=val_split, 
                       past_covariates=train_past, val_past_covariates=train_past,
                       future_covariates=train_future, val_future_covariates=train_future, verbose=False)
+
+        # --- SAVE THE MODEL ---
+        model_path = os.path.join(save_dir, f"{name}_model.pt")
+        model.save(model_path)
+        print(f"💾 Model saved to: {model_path}")
+        
+        # --- STORE CONFIGURATION ---
+        fleet_configs[name] = {
+            "lookback_hours": lookback_hours,
+            "horizon": horizon,
+            "covariate_type": cov_type,
+            "model_path": model_path
+            # You can add more params here like learning_rate if you define them!
+        }
            
         print(f"Predicting 2018 with {name} (Historical Forecasts simulating Day-Ahead)...")
         
@@ -213,4 +236,9 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     for name, metrics in sorted_results:
         print(f"{name:<12} | {metrics['MAE']:<12.2f} | {metrics['MAPE']:<10.3f} | {metrics['RMSE']:<12.2f}")
         
+    config_path = os.path.join(save_dir, "fleet_configs.json")
+    with open(config_path, "w") as f:
+        json.dump(fleet_configs, f, indent=4)
+    print(f"\n All configurations saved to: {config_path}")
+
     return predictions_dict, sorted_results
