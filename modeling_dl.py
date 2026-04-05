@@ -204,6 +204,7 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
             start=test_tgt.start_time(),
             forecast_horizon=horizon,
             stride=horizon,
+            last_points_only=False, # So we get the hourly forecast 
             retrain=False,
             verbose=False,
             **kwargs
