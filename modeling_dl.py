@@ -100,32 +100,32 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         'LSTM': {
             'model': RNNModel(model='LSTM', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
                               n_epochs=epochs, random_state=42),
-            'uses_future': True
+            'covariate_type': 'future_only'  # RNNModel does NOT accept past_covariates
         },
         'GRU': {
             'model': RNNModel(model='GRU', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
                               n_epochs=epochs, random_state=42),
-            'uses_future': True
+            'covariate_type': 'future_only'  # RNNModel does NOT accept past_covariates
         },
         'TCN': {
             'model': TCNModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                               n_epochs=epochs, random_state=42),
-            'uses_future': False
+            'covariate_type': 'past_only'
         },
         'N-BEATS': {
             'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                                  n_epochs=epochs, random_state=42),
-            'uses_future': False
+            'covariate_type': 'past_only'
         },
         'N-HiTS': {
             'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                                 n_epochs=epochs, random_state=42),
-            'uses_future': False
+            'covariate_type': 'past_only'
         },
         'TFT': {
             'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                               add_relative_index=True, n_epochs=epochs, random_state=42),
-            'uses_future': True
+            'covariate_type': 'both'  # TFT supports both past and future covariates
         }
     }
     
@@ -137,19 +137,25 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     for name, config in models_dict.items():
         print(f"\n--- 🧠 TRAINING {name} ---")
         model = config['model']
-        
-        # FIT
-        if config['uses_future']:
-            model.fit(series=train_tgt, past_covariates=train_past, future_covariates=train_future, verbose=False)
-        else:
+        cov_type = config['covariate_type']
+
+        # FIT — route covariates based on what each model architecture supports
+        if cov_type == 'future_only':
+            model.fit(series=train_tgt, future_covariates=train_future, verbose=False)
+        elif cov_type == 'past_only':
             model.fit(series=train_tgt, past_covariates=train_past, verbose=False)
-            
+        else:  # 'both' → TFT
+            model.fit(series=train_tgt, past_covariates=train_past, future_covariates=train_future, verbose=False)
+           
         print(f"Predicting 2018 with {name} (Historical Forecasts simulating Day-Ahead)...")
         
         # PREDICT
-        kwargs = {'past_covariates': full_past}
-        if config['uses_future']:
-            kwargs['future_covariates'] = full_future
+        if cov_type == 'future_only':
+            kwargs = {'future_covariates': full_future}
+        elif cov_type == 'past_only':
+            kwargs = {'past_covariates': full_past}
+        else:  # 'both' → TFT
+            kwargs = {'past_covariates': full_past, 'future_covariates': full_future}
             
         pred_scaled = model.historical_forecasts(
             series=train_tgt.append(test_tgt),
@@ -162,12 +168,17 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         )
         
         # Inverse Transform and Calculate Metrics
+        # Inverse Transform and Calculate Metrics
         pred_unscaled = scaler.inverse_transform(pred_scaled)
-        aligned_actuals = actuals.intersect(pred_unscaled)
         
-        m_mae = mae(aligned_actuals, pred_unscaled)
-        m_mape = mape(aligned_actuals, pred_unscaled)
-        m_rmse = rmse(aligned_actuals, pred_unscaled)
+        # 1. Use slice_intersect for BOTH to ensure identical lengths
+        aligned_actuals = actuals.slice_intersect(pred_unscaled)
+        aligned_preds   = pred_unscaled.slice_intersect(actuals)
+        
+        # 2. Use the aligned versions for ALL metric calculations
+        m_mae = mae(aligned_actuals, aligned_preds)
+        m_mape = mape(aligned_actuals, aligned_preds)
+        m_rmse = rmse(aligned_actuals, aligned_preds)
         
         results[name] = {'MAE': m_mae, 'MAPE': m_mape, 'RMSE': m_rmse}
         predictions_dict[name] = pred_unscaled

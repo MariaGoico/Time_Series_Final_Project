@@ -140,6 +140,7 @@ def merge_and_engineer_features(df_energy, city_dataframes):
     es_holidays_bas = holidays.Spain(years=years_list, prov='PV')
     
     df['is_holiday'] = df.index.map(lambda x: 1 if x in es_holidays else 0)
+    df['is_holiday_eve'] = df['is_holiday'].shift(-24, fill_value=0)  # Extra   
     df['is_holiday_madrid'] = df.index.map(lambda x: 1 if x in es_holidays_mad else 0)
     df['is_holiday_barcelona'] = df.index.map(lambda x: 1 if x in es_holidays_cat else 0)
     df['is_holiday_valencia'] = df.index.map(lambda x: 1 if x in es_holidays_val else 0)
@@ -160,7 +161,20 @@ def merge_and_engineer_features(df_energy, city_dataframes):
         if temp_col in df.columns:
             df[f'{temp_col}_lag_24'] = df[temp_col].shift(24)
             df[f'{temp_col}_lag_168'] = df[temp_col].shift(168)
-            
+    
+    # Create temperature aggregate
+    city_weights = {
+        'Madrid':    0.47,
+        'Barcelona': 0.24,
+        'Valencia':  0.12,
+        'Seville':   0.10,
+        'Bilbao':    0.07,
+    } 
+    df['temp_national'] = sum(df[f'temp_{city.lower()}'] * w 
+                          for city, w in city_weights.items())
+    # Cuadratic version
+    df['temp_national_sq'] = df['temp_national'] ** 2
+                
     print("Generating safe rolling window statistics...")
     # Calculate rolling mean on the ALREADY 24h-shifted series to avoid Data Leakage
     df['load_rolling_mean_24h'] = df['total load actual'].shift(24).rolling(window=24).mean()
