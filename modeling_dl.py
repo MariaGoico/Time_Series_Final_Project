@@ -85,7 +85,7 @@ def prepare_darts_from_split(X_train, y_train, X_test, y_test):
 # ==========================================
 # 2. TRAIN & EVALUATE DEEP LEARNING FLEET
 # ==========================================
-def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horizon=24, max_epochs=60):
+def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horizon=24, max_epochs=60, patience=3):
     print("="*50)
     print("🚀 LAUNCHING DEEP LEARNING FLEET (6 MODELS)")
     print("="*50)
@@ -101,10 +101,11 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     def get_trainer_kwargs():
         return {
             "callbacks": [
-                EarlyStopping(monitor="val_loss", patience=3, min_delta=0.001, mode='min')
+                EarlyStopping(monitor="val_loss", patience=patience, min_delta=0.0001, mode='min')
             ],
             "enable_checkpointing": True,
-            "logger": True # Optional: Keeps the terminal output clean
+            "logger": True, # Optional: Keeps the terminal output clean
+            "gradient_clip_val": 1.0
         }
     
     max_epochs = max_epochs # Set a high ceiling, the early stopper will cut it off naturally!
@@ -154,7 +155,7 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         'TFT': {
             'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                               add_relative_index=True, n_epochs=max_epochs, batch_size=16, random_state=42, 
-                              pl_trainer_kwargs=get_trainer_kwargs()),
+                              pl_trainer_kwargs=get_trainer_kwargs(patience=8)),
             'covariate_type': 'both'
         }
     }
@@ -170,10 +171,10 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         cov_type = config['covariate_type']
 
         # Create a validation split (e.g., last 15% of training data) for the early stopper to monitor
-        train_split, val_split = train_tgt.split_before(0.85)
+        train_split, val_split = train_tgt.split_before(0.95)
 
-        train_past_split, val_past_split = train_past.split_before(0.85)
-        train_future_split, val_future_split = train_future.split_before(0.85)
+        train_past_split, val_past_split = train_past.split_before(0.95)
+        train_future_split, val_future_split = train_future.split_before(0.95)
 
         # FIT — use the split covariates, not the full training ones
         if cov_type == 'future_only':
@@ -188,6 +189,7 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
                     future_covariates=train_future_split, val_future_covariates=val_future_split, verbose=True)
 
         # --- SAVE THE MODEL ---
+        epochs_run = model.epochs_trained
         model_path = os.path.join(save_dir, f"{name}_model.pt")
         model.save(model_path)
         print(f"💾 Model saved to: {model_path}")
@@ -248,8 +250,6 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         
         results[name] = {'MAE': m_mae, 'MAPE': m_mape, 'RMSE': m_rmse}
         predictions_dict[name] = pred_unscaled
-        
-        epochs_run = model.epochs_trained
         
         print(f"✅ {name} Completed in {epochs_run} epochs. MAE: {m_mae:,.2f} MWh")
 
