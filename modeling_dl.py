@@ -85,7 +85,7 @@ def prepare_darts_from_split(X_train, y_train, X_test, y_test):
 # ==========================================
 # 2. TRAIN & EVALUATE DEEP LEARNING FLEET
 # ==========================================
-def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horizon=24, max_epochs=60, patience=3):
+def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horizon=24, max_epochs=60):
     print("="*50)
     print("🚀 LAUNCHING DEEP LEARNING FLEET (6 MODELS)")
     print("="*50)
@@ -98,7 +98,7 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     fleet_configs = {}
 
     # Define the Early Stopping rule (wait 3 epochs for improvement before quitting)
-    def get_trainer_kwargs():
+    def get_trainer_kwargs(patience=3):
         return {
             "callbacks": [
                 EarlyStopping(monitor="val_loss", patience=patience, min_delta=0.0001, mode='min')
