@@ -125,36 +125,42 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         'LSTM': {
             'model': RNNModel(model='LSTM', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
                               n_epochs=max_epochs, batch_size=32, random_state=42, 
+                              hidden_dim=64, n_rnn_layers=2, 
                               pl_trainer_kwargs=get_trainer_kwargs()), # <--- Fresh copy here
             'covariate_type': 'future_only'
         },
         'GRU': {
             'model': RNNModel(model='GRU', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
                               n_epochs=max_epochs, batch_size=32, random_state=42, 
+                              hidden_dim=64, n_rnn_layers=2, 
                               pl_trainer_kwargs=get_trainer_kwargs()), # <--- Fresh copy here
             'covariate_type': 'future_only'
         },
         'TCN': {
             'model': TCNModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                               n_epochs=max_epochs, batch_size=32, random_state=42, 
+                              num_filters=32, kernel_size=3, num_layers=4,
                               pl_trainer_kwargs=get_trainer_kwargs()),
             'covariate_type': 'past_only'
         },
         'N-BEATS': {
             'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                                  n_epochs=max_epochs, batch_size=16, random_state=42, 
+                                 num_stacks=2, num_blocks=2, num_layers=2, layer_widths=128,
                                  pl_trainer_kwargs=get_trainer_kwargs()),
             'covariate_type': 'past_only'
         },
         'N-HiTS': {
             'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
                                 n_epochs=max_epochs, batch_size=16, random_state=42, 
+                                num_stacks=2, num_blocks=2, num_layers=2, layer_widths=128,
                                 pl_trainer_kwargs=get_trainer_kwargs()),
             'covariate_type': 'past_only'
         },
         'TFT': {
             'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                              add_relative_index=True, n_epochs=max_epochs, batch_size=16, random_state=42, 
+                              add_relative_index=True, n_epochs=max_epochs, batch_size=16, 
+                              random_state=42, hidden_size=64, lstm_layers=2, num_attention_heads=4,
                               pl_trainer_kwargs=get_trainer_kwargs(patience=8)),
             'covariate_type': 'both'
         }
@@ -171,10 +177,10 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         cov_type = config['covariate_type']
 
         # Create a validation split (e.g., last 15% of training data) for the early stopper to monitor
-        train_split, val_split = train_tgt.split_before(0.95)
-
-        train_past_split, val_past_split = train_past.split_before(0.95)
-        train_future_split, val_future_split = train_future.split_before(0.95)
+        VAL_SPLIT = 0.85
+        train_split,        val_split        = train_tgt.split_before(VAL_SPLIT)
+        train_past_split,   val_past_split   = train_past.split_before(VAL_SPLIT)
+        train_future_split, val_future_split = train_future.split_before(VAL_SPLIT)
 
         # FIT — use the split covariates, not the full training ones
         if cov_type == 'future_only':

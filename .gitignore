@@ -2,3 +2,4 @@ saved_models
 __pycache__
 lightning_logs
 saved_models_original
+saved_models_v2
