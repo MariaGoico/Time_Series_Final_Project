@@ -141,55 +141,80 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     loggers = {} 
 
     # Generate kwargs and store the loggers
-    trainer_kwargs_lstm,   loggers['LSTM']    = get_trainer_kwargs(accumulate_steps=1)
-    trainer_kwargs_gru,    loggers['GRU']     = get_trainer_kwargs(accumulate_steps=1)
-    trainer_kwargs_tcn,    loggers['TCN']     = get_trainer_kwargs(accumulate_steps=1)
-    trainer_kwargs_nbeats, loggers['N-BEATS'] = get_trainer_kwargs(accumulate_steps=2) # Simulate batch=32
-    trainer_kwargs_nhits,  loggers['N-HiTS']  = get_trainer_kwargs(accumulate_steps=2) # Simulate batch=32
-    trainer_kwargs_tft,    loggers['TFT']     = get_trainer_kwargs(patience=7, accumulate_steps=2)
+    trainer_kwargs_lstm,   loggers['LSTM']    = get_trainer_kwargs()
+    trainer_kwargs_gru,    loggers['GRU']     = get_trainer_kwargs()
+    trainer_kwargs_tcn,    loggers['TCN']     = get_trainer_kwargs()
+    trainer_kwargs_nbeats, loggers['N-BEATS'] = get_trainer_kwargs()
+    trainer_kwargs_nhits,  loggers['N-HiTS']  = get_trainer_kwargs()
+    trainer_kwargs_tft,    loggers['TFT']     = get_trainer_kwargs(patience=7)
     
     # Define models dictionary
     models_dict = {
         'LSTM': {
-            'model': RNNModel(model='LSTM', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
-                              n_epochs=max_epochs, batch_size=32, random_state=42, 
-                              hidden_dim=64, n_rnn_layers=2, 
-                              pl_trainer_kwargs=get_trainer_kwargs()), # <--- Fresh copy here
+            'model': RNNModel(
+                model='LSTM',
+                input_chunk_length=lookback_hours,
+                training_length=lookback_hours + horizon,
+                hidden_dim=64, n_rnn_layers=2,
+                dropout=0.1,
+                n_epochs=max_epochs, batch_size=32, random_state=42,
+                pl_trainer_kwargs=trainer_kwargs_lstm
+            ),
             'covariate_type': 'future_only'
         },
         'GRU': {
-            'model': RNNModel(model='GRU', input_chunk_length=lookback_hours, training_length=lookback_hours+horizon, 
-                              n_epochs=max_epochs, batch_size=32, random_state=42, 
-                              hidden_dim=64, n_rnn_layers=2, 
-                              pl_trainer_kwargs=get_trainer_kwargs()), # <--- Fresh copy here
+            'model': RNNModel(
+                model='GRU',
+                input_chunk_length=lookback_hours,
+                training_length=lookback_hours + horizon,
+                hidden_dim=64, n_rnn_layers=2,
+                dropout=0.1,
+                n_epochs=max_epochs, batch_size=32, random_state=42,
+                pl_trainer_kwargs=trainer_kwargs_gru
+            ),
             'covariate_type': 'future_only'
         },
         'TCN': {
-            'model': TCNModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                              n_epochs=max_epochs, batch_size=32, random_state=42, 
-                              num_filters=32, kernel_size=3, num_layers=4,
-                              pl_trainer_kwargs=get_trainer_kwargs()),
+            'model': TCNModel(
+                input_chunk_length=lookback_hours,
+                output_chunk_length=horizon,
+                num_filters=32, kernel_size=3, num_layers=4,
+                dropout=0.1,
+                n_epochs=max_epochs, batch_size=32, random_state=42,
+                pl_trainer_kwargs=trainer_kwargs_tcn
+            ),
             'covariate_type': 'past_only'
         },
         'N-BEATS': {
-            'model': NBEATSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                                 n_epochs=max_epochs, batch_size=16, random_state=42, 
-                                 num_stacks=2, num_blocks=2, num_layers=2, layer_widths=128,
-                                 pl_trainer_kwargs=get_trainer_kwargs()),
+            'model': NBEATSModel(
+                input_chunk_length=lookback_hours,
+                output_chunk_length=horizon,
+                num_stacks=2, num_blocks=2, num_layers=2, layer_widths=128,
+                n_epochs=max_epochs, batch_size=32, random_state=42,
+                pl_trainer_kwargs=trainer_kwargs_nbeats
+            ),
             'covariate_type': 'past_only'
         },
         'N-HiTS': {
-            'model': NHiTSModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                                n_epochs=max_epochs, batch_size=16, random_state=42, 
-                                num_stacks=2, num_blocks=2, num_layers=2, layer_widths=128,
-                                pl_trainer_kwargs=get_trainer_kwargs()),
+            'model': NHiTSModel(
+                input_chunk_length=lookback_hours,
+                output_chunk_length=horizon,
+                num_stacks=2, num_blocks=2, num_layers=2, layer_widths=128,
+                n_epochs=max_epochs, batch_size=32, random_state=42,
+                pl_trainer_kwargs=trainer_kwargs_nhits
+            ),
             'covariate_type': 'past_only'
         },
         'TFT': {
-            'model': TFTModel(input_chunk_length=lookback_hours, output_chunk_length=horizon, 
-                              add_relative_index=True, n_epochs=max_epochs, batch_size=16, 
-                              random_state=42, hidden_size=64, lstm_layers=2, num_attention_heads=4,
-                              pl_trainer_kwargs=get_trainer_kwargs(patience=8)),
+            'model': TFTModel(
+                input_chunk_length=lookback_hours,
+                output_chunk_length=horizon,
+                hidden_size=64, lstm_layers=2, num_attention_heads=4,
+                dropout=0.1,
+                add_relative_index=True,
+                n_epochs=max_epochs, batch_size=32, random_state=42,
+                pl_trainer_kwargs=trainer_kwargs_tft
+            ),
             'covariate_type': 'both'
         }
     }
