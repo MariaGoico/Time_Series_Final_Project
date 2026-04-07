@@ -116,15 +116,17 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     fleet_configs = {}
 
     # Define the Early Stopping rule (wait 3 epochs for improvement before quitting)
-    def get_trainer_kwargs(patience=3):
+
+    def get_trainer_kwargs(patience=5):
+        logger = LossLogger()
         return {
             "callbacks": [
-                EarlyStopping(monitor="val_loss", patience=patience, min_delta=0.0001, mode='min')
+                EarlyStopping(monitor="val_loss", patience=patience, min_delta=0.0001, mode='min'),
+                logger,
             ],
             "enable_checkpointing": True,
-            "logger": True, # Optional: Keeps the terminal output clean
-            "gradient_clip_val": 1.0
-        }
+            "gradient_clip_val": 1.0,
+        }, logger
     
     max_epochs = max_epochs # Set a high ceiling, the early stopper will cut it off naturally!
     
