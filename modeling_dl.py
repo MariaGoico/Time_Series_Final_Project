@@ -2,6 +2,7 @@ import os
 import json
 import gc
 import torch
+import pytorch_lightning as pl
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,6 +14,23 @@ from darts.metrics import mae, mape, rmse
 import warnings
 
 warnings.filterwarnings('ignore')
+
+# To track loss 
+class LossLogger(pl.Callback):
+    """Records train_loss and val_loss at the end of every epoch."""
+    def __init__(self):
+        self.train_loss = []
+        self.val_loss   = []
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        loss = trainer.callback_metrics.get("train_loss")
+        if loss is not None:
+            self.train_loss.append(float(loss))
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        loss = trainer.callback_metrics.get("val_loss")
+        if loss is not None:
+            self.val_loss.append(float(loss))
 
 # ==========================================
 # 1. PREPARE DARTS DATA DIRECTLY FROM YOUR X/y SPLIT
@@ -119,6 +137,16 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
     train_future = darts_data['train_future_scaled']
     test_future = darts_data['test_future_scaled']
     full_future = train_future.append(test_future)
+
+    loggers = {} 
+
+    # Generate kwargs and store the loggers
+    trainer_kwargs_lstm,   loggers['LSTM']    = get_trainer_kwargs(accumulate_steps=1)
+    trainer_kwargs_gru,    loggers['GRU']     = get_trainer_kwargs(accumulate_steps=1)
+    trainer_kwargs_tcn,    loggers['TCN']     = get_trainer_kwargs(accumulate_steps=1)
+    trainer_kwargs_nbeats, loggers['N-BEATS'] = get_trainer_kwargs(accumulate_steps=2) # Simulate batch=32
+    trainer_kwargs_nhits,  loggers['N-HiTS']  = get_trainer_kwargs(accumulate_steps=2) # Simulate batch=32
+    trainer_kwargs_tft,    loggers['TFT']     = get_trainer_kwargs(patience=7, accumulate_steps=2)
     
     # Define models dictionary
     models_dict = {
@@ -259,6 +287,19 @@ def train_and_evaluate_deep_learning_fleet(darts_data, lookback_hours=168, horiz
         
         print(f"✅ {name} Completed in {epochs_run} epochs. MAE: {m_mae:,.2f} MWh")
 
+        # ── Save loss curves to CSV ──────────────────────────────────────────
+        loss_logger = loggers[name]
+        loss_df = pd.DataFrame({
+            'epoch':      range(1, len(loss_logger.train_loss) + 1),
+            'train_loss': loss_logger.train_loss,
+            'val_loss':   loss_logger.val_loss[:len(loss_logger.train_loss)]
+                          + [float('nan')] * max(0, len(loss_logger.train_loss) - len(loss_logger.val_loss))
+        })
+        loss_csv_path = os.path.join(save_dir, f"{name}_loss_curves.csv")
+        loss_df.to_csv(loss_csv_path, index=False)
+        print(f"📈 Loss curves saved to: {loss_csv_path}")
+
+        # Aggressively clear GPU Memory
         del model
         gc.collect()
         if torch.cuda.is_available():
