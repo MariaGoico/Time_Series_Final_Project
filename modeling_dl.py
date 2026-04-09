@@ -6,8 +6,7 @@ import pytorch_lightning as pl
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from darts import TimeSeries
-from darts.utils.timeseries_generation import concatenate
+from darts import TimeSeries, concatenate
 from darts.dataprocessing.transformers import Scaler
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from darts.models import RNNModel, TCNModel, NBEATSModel, NHiTSModel, TFTModel
