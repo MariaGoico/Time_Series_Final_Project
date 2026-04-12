@@ -70,10 +70,6 @@ def engineer_features(df):
     df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
     df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
 
-    df['week_of_year'] = df.index.isocalendar().week.astype(int)
-    df['woy_sin'] = np.sin(2 * np.pi * df['week_of_year'] / 52)
-    df['woy_cos'] = np.cos(2 * np.pi * df['week_of_year'] / 52)
-
     # ── 2e. Human Behavior (Holidays) ─────────────────────────────────────
     print("Adding holiday and bridge-day flags...")
     years_list = list(range(2014, 2020))
@@ -128,6 +124,8 @@ def engineer_features(df):
     # ── 2g. Final cleanup ─────────────────────────────────────────────────
     print("Dropping rows with NaNs from lag initialisation...")
     df.drop(columns=['hour', 'month', 'week_of_year'], inplace=True, errors='ignore')
+    df.drop(columns=['sunrise_hour', 'sunset_hour'], inplace=True, errors='ignore')
+
     
     df_final = df.dropna().copy()
 
