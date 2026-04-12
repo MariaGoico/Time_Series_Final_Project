@@ -17,26 +17,19 @@ from catboost import CatBoostRegressor
 
 warnings.filterwarnings('ignore')
 
-
-# ---------------------------------------------------------------------------
 # XGBoost with Time-Series CV
-# ---------------------------------------------------------------------------
-
-def tune_xgboost_with_cv(X_train, y_train, n_iter=10):
-    """
-    Hyperparameter search for XGBoost using TimeSeriesSplit (no leakage).
-    Returns the best estimator already fitted on the full X_train.
-    """
+def tune_xgboost_with_cv(X_train, y_train, n_iter=25):
     print("--- XGBoost: TIME SERIES CV HYPERPARAMETER SEARCH ---")
 
-    tscv = TimeSeriesSplit(n_splits=3)
+    tscv = TimeSeriesSplit(n_splits=5, gap=24)
 
     param_grid = {
-        'n_estimators':     [300, 500, 800],
-        'learning_rate':    [0.01, 0.05, 0.1],
-        'max_depth':        [4, 6, 8],
-        'subsample':        [0.7, 0.8, 0.9],
-        'colsample_bytree': [0.7, 0.8, 0.9],
+        'n_estimators':     [800, 1200, 1500],
+        'learning_rate':    [0.01, 0.03, 0.05],
+        'max_depth':        [6, 8, 10, 12],
+        'subsample':        [0.8, 0.9, 1.0],
+        'colsample_bytree': [0.8, 0.9, 1.0],
+        'min_child_weight': [1, 3, 5]
     }
 
     mae_scorer = make_scorer(mean_absolute_error, greater_is_better=False)
@@ -52,10 +45,10 @@ def tune_xgboost_with_cv(X_train, y_train, n_iter=10):
         n_jobs=-1,
     )
 
-    print(f"Running {n_iter} random combinations × 3 folds …")
+    print(f"Running {n_iter} random combinations × 5 folds …")
     search.fit(X_train, y_train)
 
-    print("\n✅ Cross-validation complete.")
+    print("\nCross-validation complete.")
     print("Best params:")
     for k, v in search.best_params_.items():
         print(f"  {k}: {v}")
@@ -63,23 +56,19 @@ def tune_xgboost_with_cv(X_train, y_train, n_iter=10):
 
     return search.best_estimator_
 
-
 def evaluate_xgboost(best_xgb, X_test, y_test, tso_metrics=None):
-    """Evaluate the tuned XGBoost on the hold-out test set."""
     y_pred = best_xgb.predict(X_test)
     mae_  = mean_absolute_error(y_test, y_pred)
     mape_ = mean_absolute_percentage_error(y_test, y_pred) * 100
     rmse_ = np.sqrt(mean_squared_error(y_test, y_pred))
 
-    print("\n📊 XGBoost — TEST SET 2018")
+    print("\nXGBoost — TEST SET 2018")
     _print_metrics(mae_, mape_, rmse_, tso_metrics)
 
     return pd.Series(y_pred, index=y_test.index, name='XGBoost'), \
            {'MAE': mae_, 'MAPE': mape_, 'RMSE': rmse_}
 
-
 def plot_xgb_feature_importance(model, X_train, top_n=20):
-    """Bar chart of the top-N most important features."""
     imp = pd.Series(model.feature_importances_, index=X_train.columns)
     imp = imp.nlargest(top_n).sort_values()
 
@@ -91,25 +80,17 @@ def plot_xgb_feature_importance(model, X_train, top_n=20):
     plt.tight_layout()
     plt.show()
 
-
-# ---------------------------------------------------------------------------
-# LightGBM — Quantile Regression (probabilistic forecast)
-# ---------------------------------------------------------------------------
-
+# LightGBM
 def train_and_evaluate_lgbm_quantiles(
     X_train, y_train, X_test, y_test,
     tso_metrics=None,
     lower_q=0.10, upper_q=0.90,
 ):
-    """
-    Trains three LightGBM quantile models: lower (10th), median (50th),
-    upper (90th) → gives an 80% prediction interval.
-    """
-    print("--- LightGBM: QUANTILE REGRESSION ---")
 
+    print("\n--- LightGBM: QUANTILE REGRESSION ---")
     lgbm_params = dict(
-        n_estimators=800, learning_rate=0.05, max_depth=8,
-        num_leaves=63, subsample=0.8, colsample_bytree=0.8,
+        n_estimators=1000, learning_rate=0.03, max_depth=10,
+        num_leaves=127, subsample=0.8, colsample_bytree=0.8,
         random_state=42, n_jobs=-1, verbose=-1,
     )
 
@@ -145,26 +126,17 @@ def train_and_evaluate_lgbm_quantiles(
     metrics = {'MAE': mae_, 'MAPE': mape_, 'RMSE': rmse_}
     return df_preds, m_med, metrics
 
-
 def evaluate_prediction_intervals(df_preds, target_coverage=0.80):
-    """
-    PICP  — Prediction Interval Coverage Probability.
-             Should be ≥ target_coverage (e.g. 80%).
-    MPIW  — Mean Prediction Interval Width. Smaller = sharper.
-    Winkler score — combines sharpness and coverage into one number.
-                    Lower is better. Useful to report in the written report.
-    """
     print("\n--- INTERVAL METRICS ---")
     y   = df_preds['Actual']
     lo  = df_preds['Pred_Lower']
     hi  = df_preds['Pred_Upper']
-    α   = 1.0 - target_coverage          # e.g. 0.20 for 80% CI
+    α   = 1.0 - target_coverage
 
     covered = (y >= lo) & (y <= hi)
     picp = covered.mean() * 100
     mpiw = (hi - lo).mean()
 
-    # Winkler score (per observation)
     width     = hi - lo
     penalty_l = (2 / α) * (lo - y).clip(lower=0)
     penalty_u = (2 / α) * (y - hi).clip(lower=0)
@@ -176,7 +148,6 @@ def evaluate_prediction_intervals(df_preds, target_coverage=0.80):
     print(f"  Winkler score   : {winkler:,.2f} MWh  (lower = better)")
 
     return {'PICP': picp, 'MPIW': mpiw, 'Winkler': winkler}
-
 
 def plot_lightgbm_intervals(df_preds, window_hours=168, start_idx=0):
     plot_data = df_preds.iloc[start_idx: start_idx + window_hours]
@@ -199,7 +170,6 @@ def plot_lightgbm_intervals(df_preds, window_hours=168, start_idx=0):
     plt.tight_layout()
     plt.show()
 
-
 def plot_lgbm_feature_importance(model, X_train, top_n=20):
     imp = pd.Series(model.feature_importances_, index=X_train.columns)
     imp = imp.nlargest(top_n).sort_values()
@@ -212,19 +182,10 @@ def plot_lgbm_feature_importance(model, X_train, top_n=20):
     plt.tight_layout()
     plt.show()
 
-
-# ---------------------------------------------------------------------------
 # Alternative models: CatBoost / MLP / Random Forest
-# ---------------------------------------------------------------------------
-
 def train_alternative_models(X_train, y_train, X_test, y_test, tso_metrics=None):
-    """
-    Trains CatBoost, MLP, and Random Forest. Returns predictions and metrics
-    for all three so they can be fed into the master comparison table.
-    """
-    print("--- ALTERNATIVE MODELS ---")
+    print("\n--- ALTERNATIVE MODELS ---")
 
-    # Scaling (required for MLP; harmless for others)
     scaler = StandardScaler()
     X_tr_s = scaler.fit_transform(X_train)
     X_te_s = scaler.transform(X_test)
@@ -232,9 +193,9 @@ def train_alternative_models(X_train, y_train, X_test, y_test, tso_metrics=None)
     results = {}
 
     # ── CatBoost ─────────────────────────────────────────────────────────
-    print("\nTraining CatBoost…")
+    print("Training CatBoost…")
     m_cat = CatBoostRegressor(
-        iterations=800, learning_rate=0.05, depth=6,
+        iterations=1500, learning_rate=0.03, depth=8,
         loss_function='RMSE', verbose=0, random_seed=42,
     )
     m_cat.fit(X_train, y_train)
@@ -254,7 +215,7 @@ def train_alternative_models(X_train, y_train, X_test, y_test, tso_metrics=None)
     # ── Random Forest ─────────────────────────────────────────────────────
     print("Training Random Forest…")
     m_rf = RandomForestRegressor(
-        n_estimators=200, max_depth=15, min_samples_split=10,
+        n_estimators=300, max_depth=20, min_samples_split=10,
         n_jobs=-1, random_state=42,
     )
     m_rf.fit(X_train, y_train)
@@ -262,7 +223,7 @@ def train_alternative_models(X_train, y_train, X_test, y_test, tso_metrics=None)
     results['RandomForest'] = _metrics(y_test, p_rf)
 
     # ── Comparison table ──────────────────────────────────────────────────
-    print("\n📊 ALTERNATIVE MODELS — TEST SET 2018")
+    print("\nALTERNATIVE MODELS — TEST SET 2018")
     header = f"{'Model':<14} | {'MAE':>10} | {'MAPE (%)':>9} | {'RMSE':>10}"
     print(header)
     print("-" * len(header))
@@ -281,18 +242,13 @@ def train_alternative_models(X_train, y_train, X_test, y_test, tso_metrics=None)
     }
     return preds, results
 
-
-# ---------------------------------------------------------------------------
 # Internal helpers
-# ---------------------------------------------------------------------------
-
 def _metrics(y_true, y_pred):
     return {
         'MAE':  mean_absolute_error(y_true, y_pred),
         'MAPE': mean_absolute_percentage_error(y_true, y_pred) * 100,
         'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
     }
-
 
 def _print_metrics(mae_, mape_, rmse_, tso_metrics=None):
     print(f"  MAE  : {mae_:,.2f} MWh", end="")

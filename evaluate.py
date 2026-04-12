@@ -26,23 +26,19 @@ def temporal_train_test_split(df, target_col='total load actual', cutoff_date='2
 def evaluate_tso_baseline(y_test, energy_csv_path="data/energy_dataset.csv"):
     print("\nCalculating official TSO baseline metrics...")
     
-    # Load raw data just to extract the dropped forecast column
     df_orig = pd.read_csv(energy_csv_path)
     df_orig['time'] = pd.to_datetime(df_orig['time'], utc=True)
     df_orig.set_index('time', inplace=True)
     
-    # Extract forecast strictly for the test period
     tso_forecast = df_orig.loc[y_test.index, 'total load forecast']
     
-    # Handle potential NaNs with interpolation to ensure fair comparison
     if tso_forecast.isna().sum() > 0:
         tso_forecast = tso_forecast.interpolate(method='time')
         
-    # Calculate metrics
     mae = mean_absolute_error(y_test, tso_forecast)
     mape = mean_absolute_percentage_error(y_test, tso_forecast) * 100
     rmse = np.sqrt(mean_squared_error(y_test, tso_forecast))
-    print(f"🎯 OFFICIAL TSO BASELINE (2018):")
+    print(f"OFFICIAL TSO BASELINE (2018):")
     print(f"   MAE:  {mae:,.2f} MWh")
     print(f"   MAPE: {mape:.3f} %")
     print(f"   RMSE: {rmse:,.2f} MWh")
@@ -52,9 +48,6 @@ def evaluate_tso_baseline(y_test, energy_csv_path="data/energy_dataset.csv"):
 
 
 def plot_forecast_vs_actual(y_actual, y_pred, model_name="TSO Forecast", window_hours=168):
-    """
-    Plots a specific window of actual vs predicted values for visual inspection.
-    """
     plt.figure(figsize=(15, 5))
     plt.plot(y_actual.iloc[:window_hours].index, y_actual.iloc[:window_hours], 
              label='Actual Demand', color='black', linewidth=2)
