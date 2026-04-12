@@ -38,10 +38,8 @@ def engineer_features(df):
 
     # ── 2a. Price Lagging ─────────────────────────────────────────────────
     if 'price day ahead' in df.columns and 'price actual' in df.columns:
-        df['lag_price_24'] = df['price day ahead'].shift(24)
-        
-        df['lag_price_error_24'] = (df['price actual'] - df['price day ahead']).shift(24)
-        
+        df['lag_price_24'] = df['price actual'].shift(24)
+                
         df.drop(columns=['price day ahead', 'price actual'], inplace=True)
 
     # ── 2b. System Memory ─────────────────────────────────────────────────
